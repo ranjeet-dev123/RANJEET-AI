@@ -1,0 +1,10 @@
+backend/
+*.py
+__pycache__/
+venv/
+env/
+*.db
+*.sqlite3
+uploads/
+chroma_db/
+.venv/
