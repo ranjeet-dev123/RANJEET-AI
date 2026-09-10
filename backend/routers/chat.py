@@ -8,7 +8,16 @@ import json
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-SYSTEM_PROMPT = """You are RajAI, a friendly and smart personal AI assistant built by Ranjeet, a college student in India.
+# ═══════════════════════════════════════════════════════
+# SYSTEM PROMPT — RajAI ki identity
+# ═══════════════════════════════════════════════════════
+SYSTEM_PROMPT = """You are RajAI, a friendly and smart personal AI assistant created by Ranjeet, a college student in India.
+
+IMPORTANT IDENTITY RULES:
+- Your name is RajAI (not RANJEET, not any other name)
+- You were created by Ranjeet
+- If someone asks "who are you", "tumhara naam kya hai", "tumhe kisne banaya", always say you are RajAI, created by Ranjeet
+- Never say "I don't know" for these identity questions
 
 Your personality:
 - Warm, friendly, encouraging — like a helpful senior/bhai
@@ -32,15 +41,20 @@ Rules:
 - Agar kuch nahi pata, saaf bolo "mujhe iska exact answer nahi pata" — guess mat karo
 """
 
+# ═══════════════════════════════════════════════════════
+# RAG INSTRUCTION — sirf tab jab PDF attached ho
+# ═══════════════════════════════════════════════════════
 RAG_INSTRUCTION = """
 
-═══════════ IMPORTANT INSTRUCTIONS ═══════════
-Agar neeche "USER'S DOCUMENT CONTEXT" diya gaya hai:
-1. Us context ko DHYAN SE padho
-2. Agar user ka sawaal us context se related hai, to WAHI context use karke jawab do
-3. Agar context mein answer hai, apni knowledge se mat banao — context se lo
-4. Agar context mein answer NAHI hai, to saaf bolo "Aapke document mein ye information nahi hai" phir apni knowledge se jawab do
-5. Context se answer dete waqt, "[Chunk 1]" jaisa reference mat likho — natural jawab do
+═══════════ USER'S DOCUMENT CONTEXT PROVIDED ═══════════
+The user has attached a PDF/document. Below is the relevant context from it.
+
+Instructions for using this context:
+1. If the user's question is RELATED to the document content, use the context to answer.
+2. If the context contains the answer, use it — don't make up from your own knowledge.
+3. If the context does NOT contain the answer but the question is document-related, say "Aapke document mein ye information nahi hai" and then answer from your knowledge.
+4. Do NOT mention "[Chunk 1]" or reference numbers — answer naturally.
+5. For PERSONAL questions (who made you, your name, etc.), IGNORE the context and use your identity rules.
 ═════════════════════════════════════════════
 """
 
@@ -119,7 +133,9 @@ async def chat(request: ChatRequest):
 @router.post("/stream")
 async def chat_stream(request: ChatRequest):
     """
-    Streaming response with RAG
+    Streaming response with conditional RAG
+    - RAG only when user attaches PDF (collection is set)
+    - Otherwise, pure AI response
     """
     conn = get_db()
     conversation_id = request.conversation_id
@@ -143,22 +159,24 @@ async def chat_stream(request: ChatRequest):
         conn.commit()
 
     # ═══════════════════════════════════════════════════
-    # RAG: PDF se relevant chunks dhundo
+    # RAG — SIRF TAB JAB PDF ATTACHED HO
     # ═══════════════════════════════════════════════════
-    user_query = request.messages[-1].content
-    # RAG: sirf selected PDF ke collection se search
-    collection_name = request.collection if request.collection else "default"
-    retrieved_chunks = search(collection_name, user_query, top_k=3)
-
-    print(f"🔍 RAG [{collection_name}] Retrieved: {len(retrieved_chunks)} chunks for: {user_query[:60]}")
-
     rag_context = ""
-    if retrieved_chunks:
-        rag_context = "\n\n═══════════ USER'S DOCUMENT CONTEXT ═══════════\n"
-        for i, chunk in enumerate(retrieved_chunks, 1):
-            rag_context += f"\n[Chunk {i}]:\n{chunk}\n"
-        rag_context += "\n═══════════ END CONTEXT ═══════════\n"
-        rag_context += RAG_INSTRUCTION
+    user_query = request.messages[-1].content
+
+    # 👇 Sirf tab search karo jab collection diya ho (matlab PDF attached hai)
+    if request.collection:
+        retrieved_chunks = search(request.collection, user_query, top_k=3)
+        print(f"🔍 RAG [{request.collection}] Retrieved: {len(retrieved_chunks)} chunks")
+
+        if retrieved_chunks:
+            rag_context = "\n\n═══════════ USER'S DOCUMENT CONTEXT ═══════════\n"
+            for i, chunk in enumerate(retrieved_chunks, 1):
+                rag_context += f"\n[Chunk {i}]:\n{chunk}\n"
+            rag_context += "\n═══════════ END CONTEXT ═══════════\n"
+            rag_context += RAG_INSTRUCTION
+    else:
+        print(f"💬 No PDF attached — pure AI mode for: {user_query[:60]}")
 
     # Ollama messages
     ollama_messages = [
