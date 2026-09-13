@@ -37,7 +37,7 @@ function App() {
   }, [messages]);
 
   // ═══════════════════════════════════════════════════
-  // Load conversations
+  // Load conversations Message
   // ═══════════════════════════════════════════════════
   const loadConversations = async () => {
     try {
